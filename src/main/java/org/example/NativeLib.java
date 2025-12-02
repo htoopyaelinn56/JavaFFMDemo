@@ -38,25 +38,53 @@ public class NativeLib {
 
     static {
         try {
-            // Load the native library from resources
-            String libName = "libnative.dylib";
-            String resourcePath = "/native/" + libName;
+            String libName = "libnative.dylib"; // macOS dylib name
 
-            // Extract library to temporary location
-            Path tempLib = Files.createTempFile("libnative", ".dylib");
-            tempLib.toFile().deleteOnExit();
-
-            try (InputStream is = NativeLib.class.getResourceAsStream(resourcePath)) {
-                if (is == null) {
-                    throw new RuntimeException("Native library not found in resources: " + resourcePath);
+            // Allow explicit override: -Dnative.lib.path=/abs/path/to/libnative.dylib
+            String override = System.getProperty("native.lib.path");
+            Path libPath = null;
+            if (override != null && !override.isBlank()) {
+                Path candidate = Path.of(override);
+                if (Files.exists(candidate)) {
+                    libPath = candidate;
+                } else {
+                    throw new RuntimeException("native.lib.path set but file not found: " + candidate);
                 }
-                Files.copy(is, tempLib, StandardCopyOption.REPLACE_EXISTING);
             }
 
-            // Load the library
-            System.load(tempLib.toAbsolutePath().toString());
-            LIBRARY = SymbolLookup.loaderLookup();
+            // Default to project-relative path: <project>/native/target/release/libnative.dylib
+            if (libPath == null) {
+                Path base = Path.of(System.getProperty("user.dir"));
+                for (int i = 0; i < 4; i++) {
+                    Path candidate = base.resolve("native").resolve("target").resolve("release").resolve(libName);
+                    if (Files.exists(candidate)) {
+                        libPath = candidate;
+                        break;
+                    }
+                    base = base.getParent() != null ? base.getParent() : base;
+                }
+            }
 
+            if (libPath != null) {
+                System.load(libPath.toAbsolutePath().toString());
+                LIBRARY = SymbolLookup.loaderLookup();
+            } else {
+                // Fallback to loading from bundled resources (for packaged distributions)
+                String resourcePath = "/native/" + libName;
+                Path tempLib = Files.createTempFile("libnative", ".dylib");
+                tempLib.toFile().deleteOnExit();
+                try (InputStream is = NativeLib.class.getResourceAsStream(resourcePath)) {
+                    if (is == null) {
+                        throw new RuntimeException(
+                                "Native library not found at 'native/target/release/" + libName +
+                                        "' and no resource found at '" + resourcePath + "'.\n" +
+                                        "Build it with: (cd native && cargo build --release) or pass -Dnative.lib.path");
+                    }
+                    Files.copy(is, tempLib, StandardCopyOption.REPLACE_EXISTING);
+                }
+                System.load(tempLib.toAbsolutePath().toString());
+                LIBRARY = SymbolLookup.loaderLookup();
+            }
         } catch (IOException e) {
             throw new RuntimeException("Failed to load native library", e);
         }
@@ -140,4 +168,3 @@ public class NativeLib {
         }
     }
 }
-

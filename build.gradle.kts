@@ -30,14 +30,3 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
 }
-
-// Copy native library to resources
-tasks.register<Copy>("copyNativeLib") {
-    from("native/target/release/libnative.dylib")
-    into("src/main/resources/native")
-}
-
-tasks.named("processResources") {
-    dependsOn("copyNativeLib")
-}
-
